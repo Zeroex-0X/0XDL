@@ -1,0 +1,94 @@
+name: Build & Release APK
+
+on:
+  push:
+    tags: ['v*']          # e.g. git tag v1.0.4 && git push origin v1.0.4
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android scaffold
+        run: |
+          cp -r lib /tmp/lib_bak && cp pubspec.yaml /tmp/pubspec_bak.yaml
+          flutter create --platforms=android --org com.zeroex --project-name oxdl .
+          rm -rf lib test && cp -r /tmp/lib_bak lib && cp /tmp/pubspec_bak.yaml pubspec.yaml
+
+      - name: Install native bridge + patch Gradle/Manifest
+        run: |
+          cp android_overrides/*.kt android/app/src/main/kotlin/com/zeroex/oxdl/
+          cp -r android_overrides/res/* android/app/src/main/res/
+          python3 scripts/patch_android.py
+
+      - name: Release signing key (uses repository secrets if present)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/android/app/oxdl-release.jks"
+            {
+              echo "storePassword=$STORE_PASSWORD"
+              echo "keyPassword=$KEY_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "storeFile=$GITHUB_WORKSPACE/android/app/oxdl-release.jks"
+            } > android/key.properties
+            echo "Signing with the release key"
+          else
+            echo "::warning::No KEYSTORE_BASE64 secret - building with the debug key"
+          fi
+
+      - run: flutter pub get
+
+      - name: Build release APKs
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then VER="1.0.0"; fi
+          IFS=. read -r MA MI PA <<< "${VER%%[-+]*}"
+          CODE=$((MA * 10000 + MI * 100 + PA))
+          flutter build apk --release --split-per-abi \
+            --build-name="$VER" --build-number="$CODE" \
+            --dart-define=APP_VERSION="$VER" \
+            --dart-define=UPDATE_REPO="${{ github.repository }}"
+          echo "APP_VER=$VER" >> "$GITHUB_ENV"
+
+      - name: Name the APKs (0XDL-v1.0.8-arm64-v8a.apk)
+        run: |
+          cd build/app/outputs/flutter-apk
+          for f in app-*-release.apk; do
+            abi="${f#app-}"
+            abi="${abi%-release.apk}"
+            mv "$f" "0XDL-v${APP_VER}-${abi}.apk"
+          done
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 0XDL-apks
+          path: build/app/outputs/flutter-apk/0XDL-*.apk
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 0XDL ${{ github.ref_name }}
+          generate_release_notes: true
+          files: build/app/outputs/flutter-apk/0XDL-*.apk

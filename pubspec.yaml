@@ -1,0 +1,33 @@
+name: oxdl
+description: 0XDL - a free, open-source Android app to download video and audio from multiple platforms. Runs entirely on your phone.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  permission_handler: ^11.3.1
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
+  url_launcher: ^6.3.0
+  open_filex: ^4.5.0
+  share_plus: ^10.1.4
+  video_player: ^2.9.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png
+    - assets/icon/zeroex_logo.png
+    - assets/icon/brand_telegram.png
+    - assets/icon/brand_facebook.png
+    - assets/icon/brand_github.png
